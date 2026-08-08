@@ -200,6 +200,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function prettySize(mb) {
+    // "1.3 GB" reads as a size; "1338 MB" reads as a serial number.
+    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  }
+
   function renderAiPanel() {
     if (!capabilities) return;
     aiPanel.innerHTML = "";
@@ -220,14 +225,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (capabilities.needs_download) {
-      title.textContent = "Advanced AI forecasters are ready to download";
+      const size = prettySize(capabilities.pending_mb);
+      title.textContent = "Optional: add the AI forecasters";
       body.textContent =
-        `Google TimesFM and Amazon Chronos need a one-time download of about ` +
-        `${capabilities.pending_mb} MB. Until then, the seven built-in methods are used.`;
+        `Google TimesFM and Amazon Chronos can be added with a one-time ` +
+        `${size} download. You don't need them — the seven built-in methods ` +
+        `are already running, and on monthly business data they are usually ` +
+        `just as accurate.`;
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn-secondary";
-      btn.textContent = `Download AI models (~${capabilities.pending_mb} MB, one time)`;
+      btn.textContent = `Download AI models (${size}, one time)`;
       btn.addEventListener("click", startModelDownload);
       aiPanel.append(title, body, btn);
       return;

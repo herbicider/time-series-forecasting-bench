@@ -1,0 +1,65 @@
+TIME SERIES FORECASTING BENCH
+=============================
+
+HOW TO OPEN IT
+--------------
+
+Double-click  ForecastingBench  (in this folder).
+
+That's it. Nothing gets installed.
+
+
+IF WINDOWS SHOWS A BLUE WARNING
+-------------------------------
+
+You may see "Windows protected your PC".
+
+   Click  More info  ->  Run anyway
+
+This appears because the app is not code-signed, not because anything
+was found on your computer. Code signing certificates cost several
+hundred dollars a year, and this is a free tool.
+
+
+IF IT DOESN'T START
+-------------------
+
+The first launch can take 10-20 seconds while Windows scans the files.
+Give it a moment before double-clicking again.
+
+
+WHAT IT DOES
+------------
+
+Paste a column of numbers - monthly revenue, daily Rx count, inventory
+units, active patients - and it tests seven forecasting methods against
+your own history. It scores each one on data it was never allowed to
+see, then tells you in plain English which to trust.
+
+You need at least 20 numbers. 30 or more works much better.
+
+Your data never leaves your computer. There is no server and no
+account. You can unplug the internet and it still works.
+
+
+THE AI MODELS (OPTIONAL)
+------------------------
+
+Inside the app there is a button to download Google TimesFM and Amazon
+Chronos. That is a one-time 1.3 GB download and it is entirely
+optional - the seven built-in methods work without it, and on monthly
+pharmacy data they are usually just as accurate.
+
+
+QUESTIONS?
+----------
+
+Built by Kevin Xing - pharmacy operations & business optimization
+consulting.
+
+If you'd like to talk through what these numbers mean for your pharmacy
+- staffing, purchasing, inventory, or growth - send me a message:
+
+   https://www.linkedin.com/in/xiaoang-kevin-xing-0a490359/
+
+Source code: https://github.com/herbicider/time-series-forecasting-bench

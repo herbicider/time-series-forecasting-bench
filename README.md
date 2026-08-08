@@ -11,25 +11,23 @@ English which to use and how much to rely on it.
 
 ---
 
-## Download
+## ⬇ [Download for Windows](https://github.com/herbicider/time-series-forecasting-bench/releases/latest/download/TimeSeriesForecastingBench-Windows.zip)
 
-No installation. No admin rights. Nothing written to Program Files or the registry.
+Then:
 
-**Standard edition** — start here. Seven forecasting methods, opens in seconds,
-works with no internet at all.
+1. Open your **Downloads** folder, **right-click** the file →
+   **Extract All…** → **Extract**
+2. Open the new folder and double-click **ForecastingBench**
 
-| Platform | Download | What to do |
-|---|---|---|
-| **Windows** | ~110 MB zip | Unzip anywhere, double-click **ForecastingBench.exe** |
-| **macOS** | ~92 MB zip | Unzip, drag to Applications. **First launch:** right-click the app → *Open* (it is unsigned, so a normal double-click is blocked once) |
+Nothing is installed. No admin rights, nothing written to Program Files or the
+registry, and no account to create.
 
-**AI edition** (`...-ai-...`, ~270 MB Windows / ~250 MB macOS) — adds Google
-TimesFM 2.5 and Amazon Chronos-2. Same app, plus an *Enable AI models* button
-that downloads ~1.3 GB of weights once (TimesFM 882 MB, Chronos 456 MB) behind
-a progress screen. Everything still runs locally on your CPU.
+> **If Windows says "Windows protected your PC"** — click **More info** →
+> **Run anyway**. That appears because the app is not code-signed (certificates
+> cost several hundred dollars a year and this is free), not because anything
+> was found. The first launch can take 10–20 seconds while Windows scans it.
 
-Grab the latest from
-**[Releases](https://github.com/herbicider/time-series-forecasting-bench/releases)**.
+Windows 10 or 11, 64-bit. ~270 MB download.
 
 ---
 
@@ -79,11 +77,13 @@ below 95%: the number is honest rather than circular.
 | Smoothed Trend (built-in) | Holt-style level + trend |
 | Seasonal Weighted Average (built-in) | Weighted recent average with a seasonal factor |
 
-**On the AI edition.** TimesFM 2.5 and Chronos-2 are foundation models trained on
-large corpora of time series. They are worth trying on long or unusual histories,
-but they are not automatically better — on 3–4 years of monthly pharmacy revenue,
-ARIMA and ETS are usually competitive, and the backtest will tell you which won on
-*your* data rather than asking you to take anyone's word for it.
+**The AI models are optional.** Inside the app, a button downloads Google
+TimesFM 2.5 (882 MB) and Amazon Chronos-2 (456 MB) once, behind a progress
+screen. They are foundation models trained on large corpora of time series and
+worth trying on long or unusual histories — but they are not automatically
+better. On 3–4 years of monthly pharmacy revenue, ARIMA and ETS are usually
+competitive, and the backtest tells you which won on *your* data rather than
+asking you to take anyone's word for it. Everything runs locally on your CPU.
 
 Methods are **never mislabelled**: a row says "Google TimesFM 2.5" only if that model
 genuinely produced the numbers. The built-in heuristics are always marked `(built-in)`,
@@ -107,7 +107,8 @@ python shell/app.py               # desktop app
 python core/cli.py run samples/monthly_revenue.csv   # headless
 ```
 
-Optional AI edition:
+Add the AI forecasters (**requires Python ≥ 3.10** — both packages declare it,
+so on 3.9 pip silently refuses and the app stays on the built-in methods):
 
 ```bash
 pip install -r requirements-ai.txt
@@ -117,10 +118,16 @@ pip install -r requirements-ai.txt
 
 ```bash
 pip install pyinstaller
-FB_EDITION=standard pyinstaller packaging/forecasting_bench.spec --noconfirm
+FB_EDITION=ai pyinstaller packaging/forecasting_bench.spec --noconfirm   # or: standard
 ```
 
-Output lands in `dist/`. Windows produces a portable folder; macOS produces a `.app`.
+Output lands in `dist/`. Windows produces a portable folder, macOS a `.app`.
+
+Releases ship only the **Windows AI** build — one download, one filename, so a
+non-technical user never has to choose. The spec still builds the Standard
+edition and macOS bundles for anyone running from source; macOS builds are
+unsigned, and on macOS 15+ they must be allowed via
+**System Settings → Privacy & Security → Open Anyway**.
 
 ### Tests
 
@@ -143,6 +150,7 @@ service/main.py          Local FastAPI service (job queue, progress, exports)
 ui/                      Static HTML/CSS/JS + vendored ECharts and fonts
 shell/app.py             pywebview desktop window
 packaging/               PyInstaller spec (both platforms, both editions)
+                         + START-HERE.txt shipped inside the download
 samples/                 Pharmacy example datasets
 tests/                   pytest suite
 ```
