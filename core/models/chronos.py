@@ -51,8 +51,13 @@ class ChronosForecaster:
         # quantile_levels) -> (quantiles, mean), where each is a *list* of
         # tensors, one per input series. The 1.x API took `context=` and
         # returned a single tensor; using it raises TypeError.
+        # Chronos-2 is a multivariate model: it wants
+        # (n_series, n_variates, history_length), and rejects a bare 1-D
+        # series. One series, one variate.
+        context = torch.tensor(y, dtype=torch.float32).reshape(1, 1, -1)
+
         quantiles, _mean = self._pipeline.predict_quantiles(
-            inputs=torch.tensor(y, dtype=torch.float32),
+            inputs=context,
             prediction_length=horizon,
             quantile_levels=[0.025, 0.5, 0.975],
         )
