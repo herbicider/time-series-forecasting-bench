@@ -49,6 +49,10 @@ WINDOW_TIMEOUT = 60.0
 
 _log_path: Optional[Path] = None
 
+# Held open for the process lifetime: faulthandler writes to this descriptor
+# from a signal handler, so it must outlive every normal code path.
+_crash_file = None
+
 
 # ---------------------------------------------------------------------------
 # Logging and failure reporting
@@ -84,7 +88,29 @@ def configure_logging(filename: str = "startup.log") -> Optional[Path]:
         root.addHandler(logging.StreamHandler(sys.stderr))
 
     _log_path = path
+    _enable_crash_handler(path)
     return path
+
+
+def _enable_crash_handler(log_path: Optional[Path]) -> None:
+    """Catch the failures Python never gets to report.
+
+    A segfault in a native extension — numpy, pyarrow, torch, the WebView2
+    bindings — kills the process outright. There is no exception, so no log
+    line and no dialog: precisely the "it vanished" symptom, and the one thing
+    a pure-Python handler cannot see. faulthandler writes the C-level stack.
+    """
+    global _crash_file
+
+    if log_path is None:
+        return
+    try:
+        import faulthandler
+
+        _crash_file = open(log_path.with_name("crash.log"), "w", encoding="utf-8")
+        faulthandler.enable(file=_crash_file, all_threads=True)
+    except Exception:  # noqa: BLE001 — diagnostics must never break startup
+        logger.debug("Could not enable the crash handler", exc_info=True)
 
 
 def dialogs_enabled() -> bool:
@@ -197,11 +223,19 @@ def bind_free_port(host: str = "127.0.0.1") -> "tuple[socket.socket, int]":
 def run_server(sock: socket.socket, fastapi_app) -> None:
     import uvicorn
 
-    config = uvicorn.Config(app=fastapi_app, log_level="warning")
+    # log_config=None is not a preference. uvicorn's default config calls
+    # logging.config.dictConfig, which calls _clearExistingHandlers() and
+    # *closes the stream of every handler already installed* — including the
+    # log file this app writes its startup report to. The handler stays
+    # attached, so nothing raises: every line logged after the service starts
+    # is written to a closed file and silently dropped, because a windowed
+    # build has no stderr for logging to report the error on. The log would
+    # end mid-startup and look like a crash.
+    config = uvicorn.Config(app=fastapi_app, log_level="warning", log_config=None)
     server = uvicorn.Server(config)
     try:
         server.run(sockets=[sock])
-    except Exception:  # noqa: BLE001
+    except BaseException:  # noqa: BLE001 — uvicorn calls sys.exit() on a failed start
         logger.exception("The local service stopped unexpectedly")
 
 
@@ -354,9 +388,12 @@ class SelfCheck:
         self.failures = 0
 
     def check(self, name: str, fn) -> None:
+        # BaseException, not Exception: uvicorn and pywebview both call
+        # sys.exit() on a failed start, and a SystemExit that escapes here
+        # would end the run with no record of which check raised it.
         try:
             detail = fn()
-        except Exception as exc:  # noqa: BLE001 — every failure is a result, not a crash
+        except BaseException as exc:  # noqa: BLE001 — every failure is a result
             self.failures += 1
             logger.error("FAIL  %s", name, exc_info=exc)
         else:

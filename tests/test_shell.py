@@ -135,6 +135,27 @@ def test_sample_series_is_long_enough_to_forecast():
     assert len(set(rows[1:])) == len(rows) - 1
 
 
+def test_starting_the_service_keeps_our_log_file_open():
+    """uvicorn's default log config closes every handler it finds.
+
+    logging.config.dictConfig calls _clearExistingHandlers(), which closes the
+    stream of the file handler this app reports startup failures through. The
+    handler stays attached, so nothing raises — the log simply stops, mid
+    startup, exactly where the reader most needs it.
+    """
+    path = shell_app.configure_logging("test.log")
+    log = logging.getLogger("forecastingbench")
+
+    base_url = shell_app.start_service()
+    assert shell_app.wait_for_service(base_url, timeout=30)
+
+    log.error("logged after the service came up")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    assert "logged after the service came up" in path.read_text(encoding="utf-8")
+
+
 def test_self_check_passes_its_headless_checks():
     """The checks CI relies on, minus the ones that need a display."""
     check = shell_app.SelfCheck()
