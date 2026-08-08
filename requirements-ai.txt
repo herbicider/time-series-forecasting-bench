@@ -1,5 +1,8 @@
 # AI edition — adds the two foundation models on top of requirements.txt.
 #
+# REQUIRES PYTHON >= 3.10. Both packages declare it, so on Python 3.9 pip will
+# simply refuse to install them and the app silently stays in Standard mode.
+#
 # These pull in torch, which is roughly 800 MB unpacked on Windows and turns a
 # ~120 MB portable app into a ~900 MB one. That is why they are a separate
 # edition rather than the default: most pharmacy owners forecasting monthly
@@ -14,8 +17,15 @@
 
 -r requirements.txt
 
-torch>=2.0.0
-transformers>=4.30.0
-huggingface_hub>=0.20.0
-timesfm[torch]>=2.0.0
-chronos-forecasting>=1.5.0
+torch>=2.2.0
+transformers>=4.41.0
+huggingface_hub>=0.23.0
+
+# 2.0.2 is the first release carrying TimesFM_2p5_200M_torch, the class
+# core/models/timesfm.py instantiates.
+timesfm[torch]>=2.0.2
+
+# Chronos2Pipeline only exists from 2.2 onwards. The 1.5.x line ships
+# ChronosPipeline/ChronosBoltPipeline instead, so an older pin would install
+# cleanly and then fail at import time.
+chronos-forecasting>=2.2.0
