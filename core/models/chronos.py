@@ -47,13 +47,22 @@ class ChronosForecaster:
 
         import torch
 
-        context = torch.tensor(y, dtype=torch.float32)
-        quantiles, _ = self._pipeline.predict_quantiles(
-            context=context,
+        # Chronos-2 signature: predict_quantiles(inputs, prediction_length,
+        # quantile_levels) -> (quantiles, mean), where each is a *list* of
+        # tensors, one per input series. The 1.x API took `context=` and
+        # returned a single tensor; using it raises TypeError.
+        quantiles, _mean = self._pipeline.predict_quantiles(
+            inputs=torch.tensor(y, dtype=torch.float32),
             prediction_length=horizon,
             quantile_levels=[0.025, 0.5, 0.975],
         )
-        q_np = quantiles.to(torch.float32).cpu().numpy().squeeze()
+
+        # quantiles[0] is (n_variates, prediction_length, n_quantiles); this is
+        # a univariate series, so collapse the variate axis.
+        q = quantiles[0]
+        q_np = q.to(torch.float32).cpu().numpy()
+        q_np = q_np.reshape(-1, q_np.shape[-2], q_np.shape[-1])[0][:horizon]
+
         lower = q_np[:, 0]
         point = q_np[:, 1]
         upper = q_np[:, 2]

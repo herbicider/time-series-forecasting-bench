@@ -50,37 +50,18 @@ class TimesFMForecaster:
         y = np.asarray(y, dtype=float)
         self.load_model()
 
-        # TimesFM's `freq` is a categorical granularity indicator, not a
-        # seasonal period: 0 = high frequency (daily and finer), 1 = medium
-        # (weekly/monthly), 2 = low (quarterly/yearly). Passing the seasonal
-        # period here used to send out-of-range values like 12 or 52.
-        if seasonal_period >= 12:
-            freq_indicator = 0
-        elif seasonal_period >= 4:
-            freq_indicator = 1
-        else:
-            freq_indicator = 2
-
+        # TimesFM 2.5 signature: forecast(horizon: int, inputs: list[np.ndarray])
+        # -> (point, quantiles). There is no `freq` argument; the 1.x API had
+        # one and passing it raises TypeError.
         point_forecast, quantile_forecast = self._model.forecast(
+            horizon=horizon,
             inputs=[y],
-            freq=[freq_indicator],
-            forecast_horizon=horizon,
         )
-        point = np.squeeze(np.asarray(point_forecast, dtype=float))
 
-        if quantile_forecast is not None and len(quantile_forecast) > 0:
-            q_arr = np.squeeze(np.asarray(quantile_forecast, dtype=float))
-            if q_arr.ndim == 2:
-                lower = q_arr[:, 0]
-                upper = q_arr[:, -1]
-            else:
-                sigma = np.std(np.diff(y)) if len(y) > 1 else 1.0
-                lower = point - 1.96 * sigma
-                upper = point + 1.96 * sigma
-        else:
-            sigma = np.std(np.diff(y)) if len(y) > 1 else 1.0
-            lower = point - 1.96 * sigma
-            upper = point + 1.96 * sigma
+        point = np.asarray(point_forecast, dtype=float)
+        point = point.reshape(-1, point.shape[-1])[0][:horizon]
+
+        lower, upper = self._interval(y, point, quantile_forecast, horizon)
 
         return Forecast(
             point=point,
@@ -88,3 +69,26 @@ class TimesFMForecaster:
             upper=upper,
             raw_quantiles={0.025: lower, 0.5: point, 0.975: upper},
         )
+
+    @staticmethod
+    def _interval(y, point, quantile_forecast, horizon):
+        """Turn TimesFM's deciles into a 95% band.
+
+        The model emits [mean, 0.1, 0.2, ... 0.9] along the last axis — deciles
+        only, so there is no native 2.5%/97.5% pair to read off. Rather than
+        pass off the 10th/90th as "95%", estimate the scale from the decile
+        spread (q90 - q10 spans 2 x 1.2816 sigma under a normal) and widen to
+        1.96 sigma. Every other forecaster in the app reports a 95% band, and
+        the displayed interval is conformally recalibrated regardless.
+        """
+        if quantile_forecast is not None and len(quantile_forecast) > 0:
+            q = np.asarray(quantile_forecast, dtype=float)
+            if q.ndim >= 2 and q.shape[-1] >= 10:
+                q = q.reshape(-1, q.shape[-2], q.shape[-1])[0][:horizon]
+                q10, q90 = q[:, 1], q[:, 9]
+                sigma = np.maximum((q90 - q10) / (2 * 1.2816), 1e-9)
+                return point - 1.96 * sigma, point + 1.96 * sigma
+
+        sigma = np.std(np.diff(y)) if len(y) > 1 else 1.0
+        scale = np.sqrt(np.arange(1, horizon + 1))
+        return point - 1.96 * sigma * scale, point + 1.96 * sigma * scale
