@@ -47,6 +47,16 @@ STARTUP_TIMEOUT = 30.0
 # How long the window may take to appear before we call it a failed start.
 WINDOW_TIMEOUT = 60.0
 
+# Shown when the window opens but its web view never renders anything.
+WEBVIEW2_FAILURE = (
+    "The window opened, but the web view inside it could not start, so the "
+    "app cannot show anything.\n\n"
+    "This means the Microsoft Edge WebView2 Runtime is missing or needs "
+    "repairing. It is a free Microsoft component, and installing it fixes "
+    "this:\n\n"
+    "https://developer.microsoft.com/microsoft-edge/webview2/"
+)
+
 _log_path: Optional[Path] = None
 
 # Held open for the process lifetime: faulthandler writes to this descriptor
@@ -333,6 +343,24 @@ def run_app() -> int:
     shown = threading.Event()
     window.events.shown += lambda *args, **kwargs: shown.set()
 
+    # `shown` fires for the native form, not for the browser control inside
+    # it. When WebView2 fails to initialise, pywebview logs the error and
+    # returns, leaving a window that is up but permanently blank — so a
+    # separate signal is needed for "the page actually rendered". This one is
+    # never cleared; window.load_url() resets pywebview's own loaded event
+    # each time it navigates.
+    ever_loaded = threading.Event()
+    window.events.loaded += lambda *args, **kwargs: ever_loaded.set()
+
+    def watch_for_a_dead_view() -> None:
+        if not shown.wait(WINDOW_TIMEOUT):
+            return  # a window that never opens is reported by run_app itself
+        if ever_loaded.wait(WINDOW_TIMEOUT):
+            return
+        report_fatal(WEBVIEW2_FAILURE)
+
+    threading.Thread(target=watch_for_a_dead_view, daemon=True, name="viewwatch").start()
+
     def on_ready() -> None:
         try:
             if wait_for_service(base_url):
@@ -457,7 +485,13 @@ class SelfCheck:
         return f"pywebview {version}, renderer {getattr(guilib, 'renderer', '?')}"
 
     def _window(self) -> str:
-        """Open the real window, wait for it to show, then close it."""
+        """Open the real window, wait for it to render a page, then close it.
+
+        Waiting on `shown` is not enough, and reported a pass on a runner
+        where WebView2 had failed with E_ABORT: the native form appears
+        whether or not the browser control inside it ever came up. `loaded`
+        is the first signal that something was actually rendered.
+        """
         import webview
 
         window = webview.create_window(
@@ -465,10 +499,12 @@ class SelfCheck:
         )
         shown = threading.Event()
         window.events.shown += lambda *args, **kwargs: shown.set()
+        loaded = threading.Event()
+        window.events.loaded += lambda *args, **kwargs: loaded.set()
 
         def close_when_shown() -> None:
             if shown.wait(WINDOW_TIMEOUT):
-                time.sleep(1.0)  # let the renderer paint at least one frame
+                loaded.wait(WINDOW_TIMEOUT)
             try:
                 window.destroy()
             except Exception:  # noqa: BLE001
@@ -490,7 +526,12 @@ class SelfCheck:
 
         if not shown.is_set():
             raise RuntimeError("webview.start() returned but the window never appeared")
-        return "opened and closed a real window"
+        if not loaded.is_set():
+            raise RuntimeError(
+                "the window opened but never rendered a page — the web view failed "
+                "to start (see the WebView2 error above)"
+            )
+        return "opened a real window and rendered a page in it"
 
     # -- driver -------------------------------------------------------------
 

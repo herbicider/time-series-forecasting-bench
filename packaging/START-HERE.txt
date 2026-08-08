@@ -39,6 +39,18 @@ Windows key, type the line below, and press Enter:
 Send me startup.log and I can tell you exactly what happened.
 
 
+IF THE WINDOW OPENS BUT STAYS BLANK
+-----------------------------------
+
+The app draws its screen using a free Microsoft component called the
+Edge WebView2 Runtime. It is already on most Windows 10 and 11
+computers, but if it is missing or damaged the window comes up empty.
+
+Install it from Microsoft, then start the app again:
+
+   https://developer.microsoft.com/microsoft-edge/webview2/
+
+
 WHAT IT DOES
 ------------
 
