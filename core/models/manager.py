@@ -37,8 +37,9 @@ APP_NAME = "ForecastingBench"
 TIMESFM_REPO = "google/timesfm-2.5-200m-pytorch"
 CHRONOS_REPO = "amazon/chronos-2"
 
-# Approximate on-disk size, shown to the user before they commit to a download.
-MODEL_DOWNLOAD_MB = {TIMESFM_REPO: 815, CHRONOS_REPO: 480}
+# On-disk size, shown to the user before they commit to a download.
+# Measured from the HuggingFace repo manifests, not estimated.
+MODEL_DOWNLOAD_MB = {TIMESFM_REPO: 882, CHRONOS_REPO: 456}
 
 
 # ---------------------------------------------------------------------------

@@ -15,10 +15,18 @@ English which to use and how much to rely on it.
 
 No installation. No admin rights. Nothing written to Program Files or the registry.
 
+**Standard edition** — start here. Seven forecasting methods, opens in seconds,
+works with no internet at all.
+
 | Platform | Download | What to do |
 |---|---|---|
 | **Windows** | ~110 MB zip | Unzip anywhere, double-click **ForecastingBench.exe** |
 | **macOS** | ~92 MB zip | Unzip, drag to Applications. **First launch:** right-click the app → *Open* (it is unsigned, so a normal double-click is blocked once) |
+
+**AI edition** (`...-ai-...`, ~270 MB Windows / ~250 MB macOS) — adds Google
+TimesFM 2.5 and Amazon Chronos-2. Same app, plus an *Enable AI models* button
+that downloads ~1.3 GB of weights once (TimesFM 882 MB, Chronos 456 MB) behind
+a progress screen. Everything still runs locally on your CPU.
 
 Grab the latest from
 **[Releases](https://github.com/herbicider/time-series-forecasting-bench/releases)**.
@@ -71,13 +79,17 @@ below 95%: the number is honest rather than circular.
 | Smoothed Trend (built-in) | Holt-style level + trend |
 | Seasonal Weighted Average (built-in) | Weighted recent average with a seasonal factor |
 
-**On the AI Edition.** A separate build adds Google TimesFM 2.5 and Amazon Chronos-2.
-It is a much larger download and fetches ~1.3 GB of model weights on first use, behind
-a progress screen. It is worth it mainly for long or unusual histories — for monthly
-pharmacy revenue, ARIMA and ETS are usually competitive.
+**On the AI edition.** TimesFM 2.5 and Chronos-2 are foundation models trained on
+large corpora of time series. They are worth trying on long or unusual histories,
+but they are not automatically better — on 3–4 years of monthly pharmacy revenue,
+ARIMA and ETS are usually competitive, and the backtest will tell you which won on
+*your* data rather than asking you to take anyone's word for it.
 
 Methods are **never mislabelled**: a row says "Google TimesFM 2.5" only if that model
-genuinely produced the numbers. The built-in heuristics are always marked `(built-in)`.
+genuinely produced the numbers. The built-in heuristics are always marked `(built-in)`,
+and a model that fails to load is reported as "Did not run" rather than being quietly
+replaced. CI runs both foundation models against real downloaded weights on every
+release, so an upstream API change fails the build instead of shipping.
 
 ---
 

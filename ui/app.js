@@ -212,9 +212,9 @@ document.addEventListener("DOMContentLoaded", () => {
       title.textContent = "Advanced AI forecasters";
       body.textContent =
         "This is the Standard edition. It runs seven proven forecasting methods " +
-        "with no download and no internet. The AI Edition adds Google TimesFM and " +
-        "Amazon Chronos — a much larger download, worth it mainly for long or " +
-        "unusual histories.";
+        "with no download and no internet. A separate AI Edition adds Google " +
+        "TimesFM 2.5 and Amazon Chronos-2 — worth it mainly for long or unusual " +
+        "histories. For monthly revenue, ARIMA and ETS are usually competitive.";
       aiPanel.append(title, body);
       return;
     }
