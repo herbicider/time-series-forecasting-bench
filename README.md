@@ -15,10 +15,13 @@ English which to use and how much to rely on it.
 
 No installation. No admin rights. Nothing written to Program Files or the registry.
 
-| Platform | What to do |
-|---|---|
-| **Windows** | Download the `...windows-portable.zip` from [Releases](https://github.com/herbicider/time-series-forecasting-bench/releases), unzip anywhere, double-click **ForecastingBench.exe** |
-| **macOS** | Download the `...macos.zip`, unzip, drag to Applications. **First launch:** right-click the app → *Open* (it is unsigned, so a normal double-click is blocked once) |
+| Platform | Download | What to do |
+|---|---|---|
+| **Windows** | ~110 MB zip | Unzip anywhere, double-click **ForecastingBench.exe** |
+| **macOS** | ~92 MB zip | Unzip, drag to Applications. **First launch:** right-click the app → *Open* (it is unsigned, so a normal double-click is blocked once) |
+
+Grab the latest from
+**[Releases](https://github.com/herbicider/time-series-forecasting-bench/releases)**.
 
 ---
 
