@@ -23,6 +23,13 @@ on:
 permissions:
   contents: write
 
+# A superseded branch build is wasted runner time, and a hung one would
+# otherwise sit there until the 90-minute job timeout. Tag builds are never
+# cancelled: those are the ones that publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 env:
   # timesfm and chronos-forecasting both require >= 3.10.
   PYTHON_VERSION: "3.11"
@@ -89,6 +96,7 @@ jobs:
           pip install pyinstaller
 
       - name: Run tests
+        timeout-minutes: 20
         run: python -m pytest tests/ -q
 
       - name: Derive version
@@ -108,6 +116,7 @@ jobs:
       # build that started and vanished after a few seconds got published as a
       # working release. This step launches the executable that ships.
       - name: Smoke-test the packaged app
+        timeout-minutes: 15
         shell: pwsh
         env:
           FB_LOG_DIR: ${{ github.workspace }}\smoke-logs
@@ -128,6 +137,7 @@ jobs:
       # reported but not enforced, so a runner-side limitation cannot block a
       # release — while a genuine window failure still shows up in the log.
       - name: Open a real window (reported, not enforced)
+        timeout-minutes: 15
         shell: pwsh
         continue-on-error: true
         env:

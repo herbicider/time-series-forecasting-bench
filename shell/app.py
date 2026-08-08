@@ -87,9 +87,19 @@ def configure_logging(filename: str = "startup.log") -> Optional[Path]:
     return path
 
 
+def dialogs_enabled() -> bool:
+    """False when nobody is there to dismiss a modal dialog.
+
+    MessageBoxW blocks until it is clicked. On a CI runner, or under pytest,
+    that is not an error report — it is a hang that lasts until the job times
+    out. The self-check and the test suite both turn dialogs off.
+    """
+    return os.environ.get("FB_NO_DIALOG") != "1"
+
+
 def _message_box(title: str, text: str) -> None:
     """Show a native error dialog, falling back to whatever stream exists."""
-    if sys.platform == "win32":
+    if sys.platform == "win32" and dialogs_enabled():
         try:
             import ctypes
 
@@ -474,6 +484,9 @@ def _abort(reason: str) -> None:
 def main(argv: Optional[list] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     self_check = "--self-check" in argv or os.environ.get("FB_SELF_CHECK") == "1"
+    if self_check:
+        # Nothing is watching a self-check, so a modal dialog would hang it.
+        os.environ["FB_NO_DIALOG"] = "1"
 
     configure_logging("selfcheck.log" if self_check else "startup.log")
     install_exception_hooks()
