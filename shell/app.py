@@ -1,38 +1,156 @@
 """Desktop shell: starts the local service, then opens a native window on it.
 
-The previous version slept 0.5 s and hoped, had no error handling, and left
-external links to navigate the app window itself. All three produced the same
-user experience: a blank or stuck window with nothing to act on.
+Everything in here is arranged around one rule: **the app must never vanish
+without saying why.** A packaged Windows build has no console, so `print` goes
+nowhere and `sys.stderr` may be None. The previous version wrapped its startup
+in two broad `except Exception` blocks whose only output was a print to that
+missing stream, so any failure — a GUI backend that would not load, a port it
+could not bind — looked identical to the user: the process appears in Task
+Manager for a few seconds and disappears.
+
+So every failure path now does two things instead:
+
+  1. writes a full traceback to a log file under the per-user data directory
+     (core.paths.log_dir), and
+  2. shows a native message box naming the problem and the log file.
+
+`--self-check` runs the same startup sequence headlessly and reports on it,
+which is what CI runs against the packaged executable so a build that cannot
+start can never be published again.
 """
 
 import logging
+import os
 import socket
 import sys
 import threading
 import time
+import traceback
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-# Redirect the HuggingFace cache before anything can import torch.
-from core.models import manager  # noqa: E402
+# Deliberately the only import before logging is configured: core.paths pulls
+# in nothing but the standard library, so it cannot be the thing that fails.
+from core.paths import log_dir  # noqa: E402
 
-manager.configure_model_cache()
-
-import uvicorn  # noqa: E402
-import webview  # noqa: E402
-
-from service.main import app as fastapi_app  # noqa: E402
-
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("forecastingbench")
 
 APP_TITLE = "Time Series Forecasting Bench"
 STARTUP_TIMEOUT = 30.0
 
+# How long the window may take to appear before we call it a failed start.
+WINDOW_TIMEOUT = 60.0
+
+_log_path: Optional[Path] = None
+
+
+# ---------------------------------------------------------------------------
+# Logging and failure reporting
+# ---------------------------------------------------------------------------
+
+def configure_logging(filename: str = "startup.log") -> Optional[Path]:
+    """Send INFO and above to a log file, and to the console when there is one.
+
+    Returns the log path, or None if no writable location could be found —
+    logging must never be the reason the app fails to start.
+    """
+    global _log_path
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    path: Optional[Path] = None
+    try:
+        directory = log_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / filename
+        handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+        )
+        root.addHandler(handler)
+    except Exception:  # noqa: BLE001 — an unwritable log directory is survivable
+        path = None
+
+    # In a windowed build sys.stderr is None, and StreamHandler(None) would
+    # fall back to the real stderr; only add it when there is one.
+    if sys.stderr is not None:
+        root.addHandler(logging.StreamHandler(sys.stderr))
+
+    _log_path = path
+    return path
+
+
+def _message_box(title: str, text: str) -> None:
+    """Show a native error dialog, falling back to whatever stream exists."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            MB_OK, MB_ICONERROR, MB_SETFOREGROUND = 0x0, 0x10, 0x10000
+            ctypes.windll.user32.MessageBoxW(
+                None, text, title, MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+            )
+            return
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not show the error dialog")
+
+    stream = sys.stderr or sys.stdout
+    if stream is not None:
+        print(f"{title}\n\n{text}", file=stream)
+
+
+def report_fatal(summary: str, exc: Optional[BaseException] = None) -> None:
+    """Log a startup failure in full, then tell the user in plain language."""
+    if exc is not None:
+        logger.error("%s", summary, exc_info=exc)
+    else:
+        logger.error("%s", summary)
+
+    detail = f"{type(exc).__name__}: {exc}" if exc is not None else ""
+    where = f"\n\nThe full technical details were written to:\n{_log_path}" if _log_path else ""
+
+    _message_box(
+        f"{APP_TITLE} could not start",
+        f"{summary}\n\n{detail}"
+        "\n\nThis is usually caused by security software blocking the app, or by "
+        "running it from inside the ZIP file instead of extracting it first."
+        f"{where}",
+    )
+
+
+def install_exception_hooks() -> None:
+    """Make sure nothing dies quietly, on any thread."""
+
+    def handle(exc_type, exc, tb) -> None:
+        logger.error(
+            "Unhandled exception:\n%s", "".join(traceback.format_exception(exc_type, exc, tb))
+        )
+
+    sys.excepthook = handle
+
+    def handle_thread(args) -> None:
+        handle(args.exc_type, args.exc_value, args.exc_traceback)
+
+    threading.excepthook = handle_thread
+
+
+def log_environment() -> None:
+    logger.info("%s starting at %s", APP_TITLE, datetime.now(timezone.utc).isoformat())
+    logger.info("python=%s platform=%s", sys.version.split()[0], sys.platform)
+    logger.info("frozen=%s executable=%s", getattr(sys, "frozen", False), sys.executable)
+    logger.info("bundle=%s cwd=%s", getattr(sys, "_MEIPASS", "(not frozen)"), os.getcwd())
+
+
+# ---------------------------------------------------------------------------
+# Service plumbing
+# ---------------------------------------------------------------------------
 
 class Api:
     """Bridge exposed to the page as window.pywebview.api."""
@@ -66,7 +184,9 @@ def bind_free_port(host: str = "127.0.0.1") -> "tuple[socket.socket, int]":
     return sock, sock.getsockname()[1]
 
 
-def run_server(sock: socket.socket) -> None:
+def run_server(sock: socket.socket, fastapi_app) -> None:
+    import uvicorn
+
     config = uvicorn.Config(app=fastapi_app, log_level="warning")
     server = uvicorn.Server(config)
     try:
@@ -81,27 +201,36 @@ def wait_for_service(url: str, timeout: float = STARTUP_TIMEOUT) -> bool:
     import urllib.request
 
     deadline = time.time() + timeout
+    last_error: Optional[BaseException] = None
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(f"{url}/api/health", timeout=1.0) as resp:
                 if resp.status == 200:
                     return True
-        except (urllib.error.URLError, OSError):
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
             time.sleep(0.1)
+    logger.error("The service did not answer within %.0fs (last error: %s)", timeout, last_error)
     return False
 
 
-def show_startup_failure() -> None:
-    message = (
-        f"{APP_TITLE} could not start its local engine.\n\n"
-        "This is usually caused by security software blocking local connections. "
-        "Try restarting the app, or allow it through your firewall."
-    )
-    try:
-        webview.create_window(APP_TITLE, html=_error_page(message), width=620, height=380)
-        webview.start()
-    except Exception:  # noqa: BLE001
-        print(message, file=sys.stderr)
+def start_service() -> str:
+    """Start the local API on a free port and return its base URL.
+
+    The service module is imported here, on the calling thread, so an import
+    error is raised where it can be reported rather than disappearing into a
+    worker thread and surfacing 30 seconds later as an unexplained timeout.
+    """
+    from service.main import app as fastapi_app
+
+    host = "127.0.0.1"
+    sock, port = bind_free_port(host)
+    threading.Thread(
+        target=run_server, args=(sock, fastapi_app), daemon=True, name="service"
+    ).start()
+    base_url = f"http://{host}:{port}"
+    logger.info("Local service starting on %s", base_url)
+    return base_url
 
 
 def _error_page(message: str) -> str:
@@ -133,17 +262,19 @@ SPLASH_HTML = """
 """
 
 
-def main() -> None:
-    host = "127.0.0.1"
-    try:
-        sock, port = bind_free_port(host)
-    except OSError as exc:
-        logger.error("Could not reserve a local port: %s", exc)
-        show_startup_failure()
-        return
+# ---------------------------------------------------------------------------
+# Normal startup
+# ---------------------------------------------------------------------------
 
-    base_url = f"http://{host}:{port}"
-    threading.Thread(target=run_server, args=(sock,), daemon=True).start()
+def run_app() -> int:
+    from core.models import manager
+
+    # Weights must be redirected before anything can import torch.
+    manager.configure_model_cache()
+
+    import webview
+
+    base_url = start_service()
 
     # A splash while the server boots, so the window is never blank.
     window = webview.create_window(
@@ -155,23 +286,214 @@ def main() -> None:
         js_api=Api(),
     )
 
-    def on_ready() -> None:
-        if wait_for_service(base_url):
-            window.load_url(base_url)
-        else:
-            window.load_html(
-                _error_page(
-                    "The local engine did not respond in time.\n\n"
-                    "Security software blocking local connections is the usual cause."
-                )
-            )
+    shown = threading.Event()
+    window.events.shown += lambda *args, **kwargs: shown.set()
 
+    def on_ready() -> None:
+        try:
+            if wait_for_service(base_url):
+                logger.info("Service is up; loading the app")
+                window.load_url(base_url)
+            else:
+                window.load_html(
+                    _error_page(
+                        "The local engine did not respond in time.\n\n"
+                        "Security software blocking local connections is the usual cause."
+                    )
+                )
+        except Exception:  # noqa: BLE001 — a dead callback thread must still be visible
+            logger.exception("Failed to hand the window over to the local service")
+
+    logger.info("Opening the application window")
+    webview.start(on_ready, private_mode=False)
+
+    # pywebview also *returns* from start() — without raising — when a window
+    # fails to initialise. Left unchecked that is exactly the silent exit this
+    # module exists to prevent.
+    if not shown.is_set():
+        report_fatal("The application window never opened.")
+        return 1
+
+    logger.info("Window closed; shutting down")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Self-check
+# ---------------------------------------------------------------------------
+
+def _sample_series(months: int = 36) -> str:
+    """Three years of monthly numbers with a trend and a seasonal wobble."""
+    rows = ["date,value"]
+    for i in range(months):
+        year, month = 2021 + i // 12, i % 12 + 1
+        rows.append(f"{year}-{month:02d}-01,{1000 + i * 18 + (i % 12) * 45}")
+    return "\n".join(rows)
+
+
+class SelfCheck:
+    """Runs the startup path headlessly and records what worked.
+
+    Everything the packaged app does before a user sees a window is exercised
+    here — the frozen imports, the bundled UI and sample data, the service, a
+    real forecast, and loading the native GUI backend — so a build that cannot
+    start fails CI instead of a download.
+    """
+
+    def __init__(self) -> None:
+        self.failures = 0
+
+    def check(self, name: str, fn) -> None:
+        try:
+            detail = fn()
+        except Exception as exc:  # noqa: BLE001 — every failure is a result, not a crash
+            self.failures += 1
+            logger.error("FAIL  %s", name, exc_info=exc)
+        else:
+            logger.info("ok    %s%s", name, f" — {detail}" if detail else "")
+
+    # -- individual checks --------------------------------------------------
+
+    def _bundled_files(self) -> str:
+        from service.main import ROOT_DIR as SERVICE_ROOT, SAMPLES_DIR, UI_DIR
+
+        required = [
+            UI_DIR / "index.html",
+            UI_DIR / "app.js",
+            UI_DIR / "style.css",
+            UI_DIR / "vendor" / "echarts.min.js",
+            SAMPLES_DIR / "monthly_revenue.csv",
+        ]
+        missing = [str(p) for p in required if not p.is_file()]
+        if missing:
+            raise FileNotFoundError(f"missing bundled files: {', '.join(missing)}")
+        return f"resource root {SERVICE_ROOT}"
+
+    def _capabilities(self) -> str:
+        from core.models import manager
+
+        manager.configure_model_cache()
+        report = manager.capability_report()
+        return (
+            f"{'AI' if report['ai_edition'] else 'Standard'} edition, "
+            f"cache {report['cache_dir']}"
+        )
+
+    def _service(self) -> str:
+        import json
+        import urllib.request
+
+        base_url = start_service()
+        if not wait_for_service(base_url):
+            raise TimeoutError(f"{base_url}/api/health never answered")
+
+        request = urllib.request.Request(
+            f"{base_url}/api/forecast/sync",
+            data=json.dumps({"data": _sample_series(), "horizon": 3}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=300) as resp:
+            report = json.loads(resp.read())
+
+        ranking = report.get("ranking") or []
+        succeeded = [r for r in ranking if r.get("status") == "ok"]
+        if not succeeded:
+            raise ValueError(f"no model produced a forecast (ranking: {ranking})")
+        return f"{base_url}, {len(succeeded)}/{len(ranking)} models ran, winner {report['winner']}"
+
+    def _gui_backend(self) -> str:
+        import webview
+        from webview.guilib import initialize
+
+        guilib = initialize()
+        version = getattr(webview, "__version__", None) or "unknown"
+        return f"pywebview {version}, renderer {getattr(guilib, 'renderer', '?')}"
+
+    def _window(self) -> str:
+        """Open the real window, wait for it to show, then close it."""
+        import webview
+
+        window = webview.create_window(
+            title=f"{APP_TITLE} (self-check)", html=SPLASH_HTML, width=640, height=480
+        )
+        shown = threading.Event()
+        window.events.shown += lambda *args, **kwargs: shown.set()
+
+        def close_when_shown() -> None:
+            if shown.wait(WINDOW_TIMEOUT):
+                time.sleep(1.0)  # let the renderer paint at least one frame
+            try:
+                window.destroy()
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not close the self-check window")
+
+        threading.Thread(target=close_when_shown, daemon=True, name="closer").start()
+
+        # A window that never opens would otherwise block CI until the job
+        # timeout, with no log to show for it.
+        watchdog = threading.Timer(
+            WINDOW_TIMEOUT + 30.0, lambda: _abort("the window never opened")
+        )
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            webview.start(private_mode=False)
+        finally:
+            watchdog.cancel()
+
+        if not shown.is_set():
+            raise RuntimeError("webview.start() returned but the window never appeared")
+        return "opened and closed a real window"
+
+    # -- driver -------------------------------------------------------------
+
+    def run(self, with_window: bool) -> int:
+        log_environment()
+        self.check("bundled UI and sample files", self._bundled_files)
+        self.check("model capability report", self._capabilities)
+        self.check("local service and a real forecast", self._service)
+        self.check("native GUI backend", self._gui_backend)
+        if with_window:
+            self.check("application window", self._window)
+
+        if self.failures:
+            logger.error("SELF-CHECK FAILED (%d failing checks)", self.failures)
+            return 1
+        logger.info("SELF-CHECK PASSED")
+        return 0
+
+
+def _abort(reason: str) -> None:
+    logger.error("Self-check watchdog fired: %s", reason)
+    logging.shutdown()
+    os._exit(2)
+
+
+# ---------------------------------------------------------------------------
+
+def main(argv: Optional[list] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    self_check = "--self-check" in argv or os.environ.get("FB_SELF_CHECK") == "1"
+
+    configure_logging("selfcheck.log" if self_check else "startup.log")
+    install_exception_hooks()
+
+    if self_check:
+        try:
+            return SelfCheck().run(with_window="--window" in argv)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("The self-check itself crashed", exc_info=exc)
+            return 3
+
+    log_environment()
     try:
-        webview.start(on_ready, private_mode=False)
-    except Exception:  # noqa: BLE001
-        logger.exception("The application window could not be opened")
-        show_startup_failure()
+        return run_app()
+    except Exception as exc:  # noqa: BLE001 — the last line before a silent exit
+        report_fatal("Something went wrong while starting the app.", exc)
+        return 1
+    finally:
+        logging.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -27,6 +27,17 @@ IF IT DOESN'T START
 The first launch can take 10-20 seconds while Windows scans the files.
 Give it a moment before double-clicking again.
 
+Make sure you extracted the ZIP first. Opening the ZIP and double-
+clicking the app inside it starts a copy without the files it needs,
+and it closes again after a few seconds.
+
+If it still closes on its own, it leaves a report behind. Press the
+Windows key, type the line below, and press Enter:
+
+   %LOCALAPPDATA%\ForecastingBench\logs
+
+Send me startup.log and I can tell you exactly what happened.
+
 
 WHAT IT DOES
 ------------

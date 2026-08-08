@@ -17,11 +17,13 @@ Chronos unless that model genuinely produced the numbers.
 import importlib.util
 import logging
 import os
-import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+# APP_NAME is re-exported: it was part of this module's surface before the
+# path helpers moved to core.paths.
+from core.paths import APP_NAME, user_data_dir  # noqa: F401
 from core.models.arima import ArimaForecaster
 from core.models.baseline import DriftForecaster, SeasonalNaiveForecaster
 from core.models.heuristics import (
@@ -31,8 +33,6 @@ from core.models.heuristics import (
 from core.models.statistical import ETSForecaster, ThetaForecaster
 
 logger = logging.getLogger(__name__)
-
-APP_NAME = "ForecastingBench"
 
 TIMESFM_REPO = "google/timesfm-2.5-200m-pytorch"
 CHRONOS_REPO = "amazon/chronos-2"
@@ -45,17 +45,6 @@ MODEL_DOWNLOAD_MB = {TIMESFM_REPO: 882, CHRONOS_REPO: 456}
 # ---------------------------------------------------------------------------
 # Where weights live
 # ---------------------------------------------------------------------------
-
-def user_data_dir() -> Path:
-    """Per-user writable directory that survives moving the portable app."""
-    if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
-    return Path(base) / APP_NAME
-
 
 def model_cache_dir() -> Path:
     return user_data_dir() / "models"

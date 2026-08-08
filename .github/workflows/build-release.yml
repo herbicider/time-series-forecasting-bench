@@ -101,6 +101,57 @@ jobs:
           FB_EDITION: ai
         run: pyinstaller packaging/forecasting_bench.spec --noconfirm
 
+      # Nothing above this point ever runs the app. Packaging cannot fail on a
+      # missing GUI backend or a service that will not boot, which is how a
+      # build that started and vanished after a few seconds got published as a
+      # working release. This step launches the executable that ships.
+      - name: Smoke-test the packaged app
+        shell: pwsh
+        env:
+          FB_LOG_DIR: ${{ github.workspace }}\smoke-logs
+        run: |
+          $exe = "dist\ForecastingBench\ForecastingBench.exe"
+          $proc = Start-Process -FilePath $exe -ArgumentList "--self-check" -PassThru
+          if (-not $proc.WaitForExit(600000)) {
+            $proc.Kill()
+            throw "The packaged app hung and never finished its self-check."
+          }
+          Get-Content "$env:FB_LOG_DIR\selfcheck.log" -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+            throw "The packaged app failed its self-check (exit code $($proc.ExitCode))."
+          }
+
+      # Opening a real WebView2 window depends on the runner having a usable
+      # desktop session, which is not something this workflow controls. It is
+      # reported but not enforced, so a runner-side limitation cannot block a
+      # release — while a genuine window failure still shows up in the log.
+      - name: Open a real window (reported, not enforced)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          FB_LOG_DIR: ${{ github.workspace }}\smoke-logs-window
+        run: |
+          $exe = "dist\ForecastingBench\ForecastingBench.exe"
+          $proc = Start-Process -FilePath $exe -ArgumentList "--self-check","--window" -PassThru
+          if (-not $proc.WaitForExit(600000)) {
+            $proc.Kill()
+            throw "The packaged app hung while opening its window."
+          }
+          Get-Content "$env:FB_LOG_DIR\selfcheck.log" -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+            throw "The window self-check failed (exit code $($proc.ExitCode))."
+          }
+
+      - name: Upload smoke-test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-logs
+          path: |
+            smoke-logs
+            smoke-logs-window
+          if-no-files-found: warn
+
       - name: Package
         shell: bash
         run: |
