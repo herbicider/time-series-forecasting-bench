@@ -1,0 +1,21 @@
+# AI edition — adds the two foundation models on top of requirements.txt.
+#
+# These pull in torch, which is roughly 800 MB unpacked on Windows and turns a
+# ~120 MB portable app into a ~900 MB one. That is why they are a separate
+# edition rather than the default: most pharmacy owners forecasting monthly
+# revenue are well served by ARIMA and ETS, and a 1 GB download is a real
+# barrier for a tool meant to be double-click simple.
+#
+#   pip install -r requirements.txt -r requirements-ai.txt
+#
+# Model weights (~1.3 GB) are NOT installed here. They download on first use
+# into the per-user cache managed by core/models/manager.py, behind a progress
+# screen the user opts into.
+
+-r requirements.txt
+
+torch>=2.0.0
+transformers>=4.30.0
+huggingface_hub>=0.20.0
+timesfm[torch]>=2.0.0
+chronos-forecasting>=1.5.0

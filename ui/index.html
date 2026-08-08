@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Series Forecasting Bench</title>
+  <!-- Fonts and charting are vendored locally: the app must work with no
+       internet, and must not call out to a CDN given the privacy promise. -->
+  <link rel="stylesheet" href="vendor/fonts.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/echarts.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <h1 class="brand-title">Time Series Forecasting Bench</h1>
+        <span class="brand-badge">Know which forecast to trust</span>
+      </div>
+      <div class="privacy-note">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Your data never leaves your computer. No server, no telemetry.</span>
+      </div>
+    </header>
+
+    <!-- ================= STATE 1: INPUT ================= -->
+    <main id="state-input" class="state-container active">
+
+      <div class="intro-card">
+        <p>
+          Paste your numbers below. This app tests seven forecasting methods against
+          your own history, then tells you in plain English which one to trust —
+          and how much to trust it.
+        </p>
+      </div>
+
+      <div class="input-card">
+        <div class="card-header">
+          <h2>Step 1 &middot; Add your numbers</h2>
+          <p class="subtitle">Any of these three ways works. Pick whichever is easiest.</p>
+        </div>
+
+        <!-- The three accepted formats, shown literally. The old UI described
+             these in one sentence and two of them did not actually work. -->
+        <div class="howto-grid">
+          <div class="howto">
+            <div class="howto-num">1</div>
+            <h3>Just the numbers</h3>
+            <pre class="howto-example">5200
+5400
+5800
+6100</pre>
+            <p>One per line, <strong>oldest first</strong>. Fastest way to start.</p>
+          </div>
+          <div class="howto">
+            <div class="howto-num">2</div>
+            <h3>Date + number</h3>
+            <pre class="howto-example">2023-01-01, 5200
+2023-02-01, 5400
+2023-03-01, 5800</pre>
+            <p>Adding dates lets the app find <strong>seasonal patterns</strong>.</p>
+          </div>
+          <div class="howto">
+            <div class="howto-num">3</div>
+            <h3>A spreadsheet</h3>
+            <p class="howto-example howto-example--plain">
+              Drag an Excel or CSV file onto the box below, or use
+              <em>Choose file</em>.
+            </p>
+            <p>Works with exports straight from your pharmacy system.</p>
+          </div>
+        </div>
+
+        <p class="requirement-hint">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>You need at least <strong>20 data points</strong>; 30 or more gives a
+          much more reliable answer. Dollar signs and commas are fine &mdash;
+          $12,400 works.</span>
+        </p>
+
+        <!-- Sample Dataset Chips -->
+        <div class="samples-bar">
+          <span class="samples-label">No data handy? Try a pharmacy example:</span>
+          <button type="button" class="chip-btn" data-sample="monthly_revenue">Monthly revenue</button>
+          <button type="button" class="chip-btn" data-sample="daily_rx_count">Daily Rx count</button>
+          <button type="button" class="chip-btn" data-sample="weekly_inventory_units">Weekly inventory units</button>
+          <button type="button" class="chip-btn" data-sample="active_patients">Active patients</button>
+        </div>
+
+        <!-- File Drop & Paste Area -->
+        <div id="drop-zone" class="drop-zone">
+          <label class="sr-only" for="data-input">Your time series data</label>
+          <textarea id="data-input" placeholder="Paste your numbers here — one per line, oldest first.&#10;&#10;5200&#10;5400&#10;5800&#10;&#10;…or paste two columns: 2023-01-01, 5200" rows="9"></textarea>
+          <div class="drop-overlay" id="drop-overlay">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Drop your Excel or CSV file here</span>
+          </div>
+        </div>
+        <div id="input-summary" class="input-summary hidden"></div>
+
+        <!-- Upload File Button -->
+        <div class="file-action-row">
+          <label class="file-upload-btn" for="file-picker">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Choose file…
+          </label>
+          <input type="file" id="file-picker" accept=".csv,.xlsx,.xls,.txt">
+          <span id="file-name-display" class="file-name">No file selected</span>
+          <button type="button" id="btn-clear-file" class="link-btn hidden">Clear</button>
+        </div>
+
+        <div id="input-error" class="error-banner hidden" role="alert"></div>
+      </div>
+
+      <div class="input-card">
+        <div class="card-header">
+          <h2>Step 2 &middot; How far ahead?</h2>
+          <p class="subtitle">How many future periods you want predicted.</p>
+        </div>
+        <div class="options-row">
+          <div class="option-group">
+            <div class="horizon-stepper">
+              <button type="button" id="btn-horizon-dec" class="step-btn" aria-label="Fewer steps">&minus;</button>
+              <input type="number" id="horizon-input" value="6" min="1" max="24" aria-label="Number of periods to forecast">
+              <button type="button" id="btn-horizon-inc" class="step-btn" aria-label="More steps">+</button>
+            </div>
+            <span id="horizon-caption" class="horizon-caption">6 periods ahead</span>
+          </div>
+        </div>
+
+        <!-- Advanced AI forecasters: state depends on the build and on whether
+             weights are on disk. Populated by app.js from /api/capabilities. -->
+        <div id="ai-panel" class="ai-panel hidden"></div>
+
+        <div class="action-row">
+          <button type="button" id="btn-run" class="btn-primary">Run the forecast</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= STATE 2: RUNNING ================= -->
+    <main id="state-running" class="state-container hidden">
+      <div class="running-card">
+        <div class="running-header">
+          <div class="pulse-indicator"></div>
+          <div>
+            <h2>Testing forecasting methods…</h2>
+            <p class="subtitle" id="running-subtitle">Each method is scored on parts of your history it was not allowed to see.</p>
+          </div>
+        </div>
+
+        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-row">
+          <span id="progress-message">Reading and checking your data…</span>
+          <span id="progress-pct" class="progress-pct">0%</span>
+        </div>
+
+        <ul id="stage-list" class="stage-list"></ul>
+
+        <div class="action-row action-row--muted">
+          <button type="button" id="btn-cancel" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= STATE 3: DOWNLOADING MODELS ================= -->
+    <main id="state-download" class="state-container hidden">
+      <div class="running-card">
+        <div class="running-header">
+          <div class="pulse-indicator"></div>
+          <div>
+            <h2>Downloading the AI forecasting models…</h2>
+            <p class="subtitle">
+              This happens once. The models are saved on your computer and reused
+              every time after. You can keep using the app without them.
+            </p>
+          </div>
+        </div>
+
+        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="dl-progress-bar">
+          <div class="progress-fill" id="dl-progress-fill"></div>
+        </div>
+        <div class="progress-row">
+          <span id="dl-message">Starting download…</span>
+          <span id="dl-pct" class="progress-pct">0%</span>
+        </div>
+
+        <p class="download-note">
+          Large files are being fetched from Hugging Face. On a typical connection
+          this takes 5&ndash;15 minutes. It is safe to leave this window open and
+          come back later.
+        </p>
+
+        <div id="dl-error" class="error-banner hidden" role="alert"></div>
+
+        <div class="action-row action-row--muted">
+          <button type="button" id="btn-dl-back" class="btn-secondary">Back</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ================= STATE 4: RESULTS ================= -->
+    <main id="state-results" class="state-container hidden">
+      <div class="results-topbar">
+        <button type="button" id="btn-new-forecast" class="link-btn">&larr; Start over</button>
+        <div class="export-actions">
+          <button type="button" id="btn-export-csv" class="btn-secondary">Export CSV</button>
+          <button type="button" id="btn-export-pdf" class="btn-secondary">Export PDF</button>
+        </div>
+      </div>
+
+      <!-- Verdict -->
+      <div class="verdict-card">
+        <span class="eyebrow">The verdict</span>
+        <h2 id="verdict-text"></h2>
+        <p id="verdict-explainer" class="verdict-explainer"></p>
+
+        <div class="strip-block">
+          <div class="strip-header">
+            <span class="strip-title">How reliable is the predicted range?</span>
+            <span id="strip-legend" class="strip-legend"></span>
+          </div>
+          <div class="strip-track">
+            <div id="strip-fill" class="strip-fill"></div>
+            <div class="strip-marker" style="left:95%"><span>95% target</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Consulting CTA -->
+      <div class="cta-card">
+        <div class="cta-body">
+          <h3>Want help turning this forecast into action?</h3>
+          <p>
+            I'm <strong>Kevin Xing</strong>. I help pharmacy owners improve operations,
+            inventory, and profitability. If you'd like to talk through what these
+            numbers mean for your pharmacy &mdash; staffing, purchasing, or growth
+            &mdash; send me a message.
+          </p>
+        </div>
+        <a class="btn-cta" data-external
+           href="https://www.linkedin.com/in/xiaoang-kevin-xing-0a490359/">
+          Message me on LinkedIn &rarr;
+        </a>
+      </div>
+
+      <!-- Warnings -->
+      <div id="warnings-card" class="warnings-card hidden">
+        <h3>Things worth knowing about your data</h3>
+        <ul id="warnings-list"></ul>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-card">
+        <h3>Your history and what comes next</h3>
+        <p class="card-caption">
+          The solid line is the prediction. The shaded band is the range the real
+          value should fall inside about 95% of the time.
+        </p>
+        <div id="chart-container"></div>
+      </div>
+
+      <!-- Ranking -->
+      <div class="table-card">
+        <h3>How each method scored</h3>
+        <p class="card-caption">
+          Every method was tested on parts of your history it had never seen, then
+          ranked by accuracy.
+        </p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Method</th>
+                <th>Status</th>
+                <th title="Mean Absolute Scaled Error. Below 1.00 means it beat simply repeating the last known value.">Accuracy score <span class="th-hint">lower is better</span></th>
+                <th title="How often the real value landed inside the predicted range, measured on data used for neither training nor calibration.">Range reliability</th>
+                <th title="Root Mean Squared Error, in your own units.">Typical miss (RMSE)</th>
+                <th title="Mean Absolute Error, in your own units.">Average miss (MAE)</th>
+              </tr>
+            </thead>
+            <tbody id="ranking-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Forecast numbers -->
+      <div class="table-card">
+        <h3>The numbers</h3>
+        <p class="card-caption">Predicted values from the winning method, with their 95% range.</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Date</th>
+                <th>Prediction</th>
+                <th>Low end</th>
+                <th>High end</th>
+              </tr>
+            </thead>
+            <tbody id="forecast-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Diagnostics -->
+      <details class="advanced-card">
+        <summary>Technical details</summary>
+        <div class="diag-grid">
+          <div class="diag-item"><span class="diag-label">Frequency detected</span><span id="diag-freq" class="diag-value">—</span></div>
+          <div class="diag-item"><span class="diag-label">Seasonal period</span><span id="diag-season" class="diag-value">—</span></div>
+          <div class="diag-item"><span class="diag-label">Backtest windows</span><span id="diag-folds" class="diag-value">—</span></div>
+          <div class="diag-item"><span class="diag-label">Minimum training size</span><span id="diag-mintrain" class="diag-value">—</span></div>
+        </div>
+        <p id="diag-models" class="diag-models"></p>
+      </details>
+    </main>
+
+    <!-- ================= FOOTER ================= -->
+    <footer class="app-footer">
+      <div class="footer-author">
+        Built by <strong>Kevin Xing</strong> &mdash; pharmacy operations &amp; business optimization consulting.
+      </div>
+      <nav class="footer-links">
+        <a data-external href="https://www.linkedin.com/in/xiaoang-kevin-xing-0a490359/">LinkedIn</a>
+        <span class="footer-sep">·</span>
+        <a data-external href="https://github.com/herbicider">GitHub</a>
+        <span class="footer-sep">·</span>
+        <span class="footer-version">v1.1.0</span>
+      </nav>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+name: Build portable apps
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest tests/ -q
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            artifact: ForecastingBench-windows-portable
+          - os: macos-latest
+            label: macos
+            artifact: ForecastingBench-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Derive version from tag
+        shell: bash
+        run: |
+          REF="${GITHUB_REF#refs/tags/v}"
+          if [ "$REF" = "$GITHUB_REF" ]; then REF="0.0.0-dev"; fi
+          echo "FB_VERSION=$REF" >> "$GITHUB_ENV"
+
+      - name: Build (Standard edition)
+        env:
+          FB_EDITION: standard
+        run: pyinstaller packaging/forecasting_bench.spec --noconfirm
+
+      - name: Package Windows portable folder
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cp README.md dist/ForecastingBench/README.txt
+          cd dist
+          7z a -tzip "../ForecastingBench-${FB_VERSION}-windows-portable.zip" ForecastingBench
+
+      - name: Package macOS app
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          cd dist
+          # -y preserves the symlinks inside the .app bundle; a plain zip
+          # corrupts the Python framework and the app will not launch.
+          ditto -c -k --keepParent --sequesterRsrc \
+            "Time Series Forecasting Bench.app" \
+            "../ForecastingBench-${FB_VERSION}-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ForecastingBench-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
+          body: |
+            ## Time Series Forecasting Bench
+
+            Built by [Kevin Xing](https://www.linkedin.com/in/xiaoang-kevin-xing-0a490359/)
+            — pharmacy operations & business optimization consulting.
+
+            ### Download
+
+            | Platform | File | What to do |
+            |---|---|---|
+            | Windows | `...-windows-portable.zip` | Unzip anywhere, double-click `ForecastingBench.exe`. No install, no admin rights. |
+            | macOS | `...-macos.zip` | Unzip, drag to Applications. **First launch:** right-click the app and choose *Open* (it is unsigned). |
+
+            Nothing is installed and no data ever leaves the computer.

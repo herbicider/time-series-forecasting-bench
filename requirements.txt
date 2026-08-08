@@ -1,0 +1,17 @@
+# Standard edition — everything the app needs to forecast, offline, with no
+# model download. Deliberately excludes torch: see requirements-ai.txt.
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+statsforecast>=1.5.0
+statsmodels>=0.14.0
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pywebview>=4.0.0
+reportlab>=3.6.0
+openpyxl>=3.0.0
+python-multipart>=0.0.6
+
+# Testing
+pytest>=7.0.0
+httpx>=0.24.0

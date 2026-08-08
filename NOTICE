@@ -1,0 +1,43 @@
+Time Series Forecasting Bench
+Copyright 2026 Kevin Xing
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+------------------------------------------------------------------------
+Bundled third-party components
+------------------------------------------------------------------------
+
+1. Apache ECharts (ui/vendor/echarts.min.js)
+   Copyright The Apache Software Foundation
+   Apache License 2.0
+
+2. Inter (ui/vendor/fonts/Inter-*.woff2)
+   Copyright The Inter Project Authors
+   SIL Open Font License 1.1
+
+3. Instrument Serif (ui/vendor/fonts/InstrumentSerif-*.woff2)
+   Copyright The Instrument Serif Project Authors
+   SIL Open Font License 1.1
+
+4. IBM Plex Mono (ui/vendor/fonts/IBMPlexMono-*.woff2)
+   Copyright IBM Corp.
+   SIL Open Font License 1.1
+
+5. Statsforecast
+   Copyright Nixtla
+   Apache License 2.0
+
+------------------------------------------------------------------------
+Optional components (AI Edition only — not present in the Standard build)
+------------------------------------------------------------------------
+
+6. Google TimesFM 2.5
+   Copyright Google LLC
+   Apache License 2.0
+
+7. Amazon Chronos-2
+   Copyright Amazon.com, Inc. or its affiliates
+   Apache License 2.0
+
+Model weights for TimesFM and Chronos are not distributed with this software.
+They are downloaded from Hugging Face at the user's explicit request.
