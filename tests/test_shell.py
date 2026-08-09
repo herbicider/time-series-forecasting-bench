@@ -8,6 +8,7 @@ self-check that CI runs against the packaged executable.
 """
 
 import logging
+import os
 import sys
 
 import pytest
@@ -152,6 +153,75 @@ def test_configure_logging_does_not_stack_handlers():
 
     assert after_one > before
     assert len(root.handlers) == after_one
+
+
+windows_only = pytest.mark.skipif(
+    sys.platform != "win32", reason="alternate data streams are a Windows filesystem feature"
+)
+
+
+@windows_only
+def test_a_downloaded_bundle_gets_unblocked(tmp_path):
+    """The real failure: a marked DLL that .NET then refuses to execute.
+
+    Written as an actual Zone.Identifier stream rather than a mock, because
+    the bug was never in our handling of the mark — it was in not knowing the
+    mark was there.
+    """
+    dll = tmp_path / "Python.Runtime.dll"
+    dll.write_bytes(b"not really a dll")
+    marker = f"{dll}:Zone.Identifier"
+    with open(marker, "w", encoding="utf-8") as stream:
+        stream.write("[ZoneTransfer]\nZoneId=3\n")
+    assert os.path.exists(marker)
+
+    assert shell_app.clear_zone_markers(tmp_path) == 1
+
+    assert not os.path.exists(marker)
+    assert dll.read_bytes() == b"not really a dll"  # the file itself is untouched
+
+
+@windows_only
+def test_unblocking_is_idempotent_and_skips_plain_data(tmp_path):
+    (tmp_path / "notes.txt").write_bytes(b"data files are not executed")
+    dll = tmp_path / "thing.dll"
+    dll.write_bytes(b"x")
+
+    assert shell_app.clear_zone_markers(tmp_path) == 0
+    assert shell_app.clear_zone_markers(tmp_path) == 0
+
+
+def test_unblocking_is_skipped_when_running_from_source(monkeypatch):
+    """Nothing was downloaded, so there is nothing to unblock."""
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+
+    assert shell_app.clear_zone_markers() == 0
+
+
+def test_a_blocked_bundle_is_named_as_the_cause(monkeypatch, capsys):
+    """pythonnet's error says nothing about downloads; the dialog must."""
+    blocked = RuntimeError(
+        "Failed to resolve Python.Runtime.Loader.Initialize from "
+        r"C:\app\app-files\pythonnet\runtime\Python.Runtime.dll"
+    )
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(shell_app, "run_app", lambda: (_ for _ in ()).throw(blocked))
+
+    assert shell_app.main([]) == 1
+
+    out = capsys.readouterr().out
+    assert "Windows is blocking the files" in out
+    assert "Unblock" in out
+
+
+def test_an_ordinary_failure_is_not_blamed_on_windows(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(
+        shell_app, "run_app", lambda: (_ for _ in ()).throw(ValueError("something else"))
+    )
+
+    assert shell_app.main([]) == 1
+    assert "Windows is blocking the files" not in capsys.readouterr().out
 
 
 def test_bind_free_port_holds_the_socket():

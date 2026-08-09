@@ -190,6 +190,11 @@ else:
         [],
         exclude_binaries=True,
         name=APP_NAME,
+        # "_internal" is PyInstaller's default, and it reads to a non-technical
+        # user as either a mistake or something they were not meant to see —
+        # 741 MB of it, sitting next to the one file they are told to open.
+        # The name is cosmetic: sys._MEIPASS still points here either way.
+        contents_directory="app-files",
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
