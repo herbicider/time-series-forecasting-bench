@@ -36,7 +36,9 @@ Windows key, type the line below, and press Enter:
 
    %LOCALAPPDATA%\ForecastingBench\logs
 
-Send me startup.log and I can tell you exactly what happened.
+Send me startup.log and I can tell you exactly what happened. If
+there is also a startup.log.prev in that folder, send both - that one
+is from the launch before it.
 
 
 IF THE WINDOW OPENS BUT STAYS BLANK

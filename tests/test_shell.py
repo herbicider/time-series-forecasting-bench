@@ -100,6 +100,60 @@ def test_report_fatal_names_the_log_file(monkeypatch, capsys):
     assert "why" in path.read_text(encoding="utf-8")
 
 
+def test_a_library_calling_sys_exit_is_still_reported(monkeypatch, capsys):
+    """SystemExit is not an Exception, and Python exits on it in silence.
+
+    uvicorn calls sys.exit() on a failed start. Caught only as `Exception`, it
+    would sail past the handler and end the process with nothing written down
+    anywhere — the original bug, wearing a different exception type.
+    """
+    from core.paths import log_dir
+
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(shell_app, "run_app", lambda: sys.exit(4))
+
+    assert shell_app.main([]) == 4
+    assert "The app stopped while starting up" in capsys.readouterr().out
+    # main() opens its own startup.log, and closes it on the way out.
+    assert "exit code 4" in (log_dir() / "startup.log").read_text(encoding="utf-8")
+
+
+def test_a_deliberate_clean_exit_is_not_called_a_crash(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(shell_app, "run_app", lambda: sys.exit(0))
+
+    assert shell_app.main([]) == 0
+    assert "could not start" not in capsys.readouterr().out
+
+
+def test_the_previous_log_survives_the_next_launch():
+    """A user who closes and reopens the app must not erase the evidence."""
+    shell_app.configure_logging("test.log")
+    logging.getLogger("forecastingbench").error("the failure being reported")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    path = shell_app.configure_logging("test.log")
+
+    assert path is not None
+    kept = path.with_suffix(path.suffix + ".prev")
+    assert "the failure being reported" in kept.read_text(encoding="utf-8")
+    assert "the failure being reported" not in path.read_text(encoding="utf-8")
+
+
+def test_configure_logging_does_not_stack_handlers():
+    """Twice through must not mean every line written twice."""
+    root = logging.getLogger()
+    before = len(root.handlers)
+
+    shell_app.configure_logging("test.log")
+    after_one = len(root.handlers)
+    shell_app.configure_logging("test.log")
+
+    assert after_one > before
+    assert len(root.handlers) == after_one
+
+
 def test_bind_free_port_holds_the_socket():
     """The point of returning the socket is that the port stays reserved."""
     sock, port = shell_app.bind_free_port()
