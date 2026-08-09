@@ -57,6 +57,18 @@ WEBVIEW2_FAILURE = (
     "https://developer.microsoft.com/microsoft-edge/webview2/"
 )
 
+# Shown when the bundle is still blocked and we could not unblock it ourselves.
+BLOCKED_FILES_FAILURE = (
+    "Windows is blocking the files this app needs, because they arrived in a "
+    "download.\n\n"
+    "To fix it: right-click the ZIP you downloaded, choose Properties, tick "
+    "Unblock at the bottom, click OK — then extract it again and start the "
+    "app.\n\n"
+    "The app tries to clear this itself and could not, which usually means the "
+    "folder it is in is read-only. Moving the folder to your Desktop or "
+    "Documents also works."
+)
+
 _log_path: Optional[Path] = None
 
 # Held open for the process lifetime: faulthandler writes to this descriptor
@@ -157,6 +169,62 @@ def _enable_crash_handler(log_path: Optional[Path]) -> None:
         logger.debug("Could not enable the crash handler", exc_info=True)
 
 
+# Only these get executed as code. Data files carry the same mark, but nothing
+# loads them as code, and skipping them keeps this to a fraction of a second
+# across a bundle of seven thousand files.
+EXECUTABLE_SUFFIXES = frozenset({".dll", ".exe", ".pyd"})
+
+
+def clear_zone_markers(directory: Optional[Path] = None) -> int:
+    """Take the "came from the internet" mark off our own files.
+
+    Windows stamps every file extracted from a downloaded ZIP with a
+    Zone.Identifier stream, and the .NET Framework host that pywebview's
+    WinForms backend loads through refuses to execute an assembly carrying it.
+    Python.Runtime.Loader.Initialize then fails to resolve, `import clr` fails,
+    and pywebview finds no GUI backend at all: the app starts, the service
+    runs, forecasts work — and there is no way to show any of it.
+
+    That is not a defect in this code, and a build that was never downloaded
+    cannot reproduce it, which is how CI passed a release that failed on every
+    machine that installed it the normal way. Clearing the mark is exactly what
+    the Unblock checkbox in a file's Properties dialog does, and these are our
+    own files, already on this disk, about to be executed anyway.
+    """
+    if sys.platform != "win32":
+        return 0
+
+    if directory is None:
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle is None:
+            return 0  # running from source: nothing here was ever downloaded
+        directory = Path(bundle)
+
+    cleared = 0
+    started = time.monotonic()
+    try:
+        for path in directory.rglob("*"):
+            if path.suffix.lower() not in EXECUTABLE_SUFFIXES:
+                continue
+            marker = f"{path}:Zone.Identifier"
+            try:
+                if os.path.exists(marker):
+                    os.remove(marker)
+                    cleared += 1
+            except OSError:
+                # A read-only folder is not fixable from here. Say nothing now;
+                # if it actually breaks the GUI, the failure dialog explains it.
+                logger.debug("Could not unblock %s", path, exc_info=True)
+    except OSError:
+        logger.debug("Could not scan the bundle for download markers", exc_info=True)
+
+    if cleared:
+        logger.info(
+            "Unblocked %d downloaded files in %.1fs", cleared, time.monotonic() - started
+        )
+    return cleared
+
+
 def dialogs_enabled() -> bool:
     """False when nobody is there to dismiss a modal dialog.
 
@@ -203,6 +271,17 @@ def report_fatal(summary: str, exc: Optional[BaseException] = None) -> None:
         "running it from inside the ZIP file instead of extracting it first."
         f"{where}",
     )
+
+
+def _looks_like_a_blocked_bundle(exc: BaseException) -> bool:
+    """Is this the CLR refusing to run an assembly marked as downloaded?
+
+    pythonnet reports it as a plain RuntimeError naming the entry point it
+    could not resolve, with nothing in it about zones or downloads, so the
+    message has to be recognised to be explained.
+    """
+    text = f"{type(exc).__name__}: {exc}"
+    return "Python.Runtime" in text or "Failed to resolve" in text
 
 
 def install_exception_hooks() -> None:
@@ -603,6 +682,11 @@ def main(argv: Optional[list] = None) -> int:
     configure_logging("selfcheck.log" if self_check else "startup.log")
     install_exception_hooks()
 
+    # Before anything imports the GUI backend: `import clr` is what fails when
+    # the bundle is still marked as downloaded, and it happens deep inside
+    # webview.start().
+    clear_zone_markers()
+
     if self_check:
         try:
             return SelfCheck().run(with_window="--window" in argv)
@@ -631,7 +715,10 @@ def main(argv: Optional[list] = None) -> int:
         logger.info("Interrupted; shutting down")
         return 130
     except Exception as exc:  # noqa: BLE001 — the last line before a silent exit
-        report_fatal("Something went wrong while starting the app.", exc)
+        if _looks_like_a_blocked_bundle(exc):
+            report_fatal(BLOCKED_FILES_FAILURE, exc)
+        else:
+            report_fatal("Something went wrong while starting the app.", exc)
         return 1
     finally:
         logging.shutdown()

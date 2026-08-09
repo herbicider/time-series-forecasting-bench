@@ -8,6 +8,10 @@ Double-click  ForecastingBench  (in this folder).
 
 That's it. Nothing gets installed.
 
+The  app-files  folder next to it is the program itself - about 700 MB
+of it. You never need to open it, and nothing in there is meant to be
+double-clicked. Keep it where it is: the app will not run without it.
+
 
 IF WINDOWS SHOWS A BLUE WARNING
 -------------------------------
