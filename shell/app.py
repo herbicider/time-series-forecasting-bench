@@ -63,6 +63,10 @@ _log_path: Optional[Path] = None
 # from a signal handler, so it must outlive every normal code path.
 _crash_file = None
 
+# What configure_logging installed, so a repeat call replaces those handlers
+# instead of stacking a second set on top of them.
+_installed_handlers: list = []
+
 
 # ---------------------------------------------------------------------------
 # Logging and failure reporting
@@ -79,27 +83,55 @@ def configure_logging(filename: str = "startup.log") -> Optional[Path]:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
+    # A repeat call must replace what the last one installed rather than stack
+    # on top of it: two file handlers write every line twice, and on Windows
+    # the first one's open file cannot be renamed aside to make room for this
+    # run's.
+    for installed in _installed_handlers:
+        root.removeHandler(installed)
+        installed.close()
+    _installed_handlers.clear()
+
     path: Optional[Path] = None
     try:
         directory = log_dir()
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / filename
+        _keep_the_previous_log(path)
         handler = logging.FileHandler(path, mode="w", encoding="utf-8")
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
         )
         root.addHandler(handler)
+        _installed_handlers.append(handler)
     except Exception:  # noqa: BLE001 — an unwritable log directory is survivable
         path = None
 
     # In a windowed build sys.stderr is None, and StreamHandler(None) would
     # fall back to the real stderr; only add it when there is one.
     if sys.stderr is not None:
-        root.addHandler(logging.StreamHandler(sys.stderr))
+        console = logging.StreamHandler(sys.stderr)
+        root.addHandler(console)
+        _installed_handlers.append(console)
 
     _log_path = path
     _enable_crash_handler(path)
     return path
+
+
+def _keep_the_previous_log(path: Path) -> None:
+    """Move the last run's log aside before this one truncates it.
+
+    START-HERE tells a user whose app closed on its own to give it another go
+    and then send the log. Opening the file in "w" mode means that second
+    launch overwrites the report of the first — the failure they are actually
+    writing in about. One generation back is kept as <name>.prev.
+    """
+    try:
+        if path.exists():
+            path.replace(path.with_suffix(path.suffix + ".prev"))
+    except OSError:  # a locked or unwritable old log is not worth failing over
+        logger.debug("Could not keep the previous log", exc_info=True)
 
 
 def _enable_crash_handler(log_path: Optional[Path]) -> None:
@@ -117,7 +149,9 @@ def _enable_crash_handler(log_path: Optional[Path]) -> None:
     try:
         import faulthandler
 
-        _crash_file = open(log_path.with_name("crash.log"), "w", encoding="utf-8")
+        crash_path = log_path.with_name("crash.log")
+        _keep_the_previous_log(crash_path)
+        _crash_file = open(crash_path, "w", encoding="utf-8")
         faulthandler.enable(file=_crash_file, all_threads=True)
     except Exception:  # noqa: BLE001 — diagnostics must never break startup
         logger.debug("Could not enable the crash handler", exc_info=True)
@@ -579,6 +613,23 @@ def main(argv: Optional[list] = None) -> int:
     log_environment()
     try:
         return run_app()
+    except SystemExit as exc:
+        # SystemExit is not an Exception, so a narrower handler here lets it
+        # straight through — and Python's response to an escaping SystemExit is
+        # to end the process with no traceback, no log line and no dialog.
+        # That is precisely the "it vanished" symptom this module exists to
+        # prevent, and a library calling sys.exit() during startup (uvicorn
+        # does it on a failed bind) is enough to trigger it. A zero code is
+        # somebody quitting deliberately, not a crash.
+        code = exc.code
+        if code is None or code == 0:
+            logger.info("Startup ended before the window opened, with no error")
+            return 0
+        report_fatal(f"The app stopped while starting up (exit code {code}).", exc)
+        return code if isinstance(code, int) else 1
+    except KeyboardInterrupt:
+        logger.info("Interrupted; shutting down")
+        return 130
     except Exception as exc:  # noqa: BLE001 — the last line before a silent exit
         report_fatal("Something went wrong while starting the app.", exc)
         return 1
